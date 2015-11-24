@@ -6,9 +6,9 @@ import numpy as np
 import pickle
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from scipy import stats
+from scipy import stats, integrate
 from pylab import get_cmap
-from scipy import integrate
+#from scipy import integrate
 
 
 def fit_trend(x, y):
@@ -48,17 +48,15 @@ def agg_tseries_up(df, labels, conv=1):
 def main():
 
     # retrieve SPA output files
-    with open(FILENAME1, 'rb') as handle:
+    with open(FILENAME, 'rb') as handle:
         canopy_data_0 = pickle.load(handle)
-    with open(FILENAME2, 'rb') as handle:
-        hourly_data_0 = pickle.load(handle)
 
     canopy_data = collections.OrderedDict(sorted(canopy_data_0.iteritems()))
-    hourly_data = collections.OrderedDict(sorted(hourly_data_0.iteritems()))
 
-    col1_map = get_cmap("summer")(np.linspace(0.1, 1, len(hourly_data)))
-    col2_map = get_cmap("winter")(np.linspace(0.1, 1, len(canopy_data)))
-    col3_map = get_cmap("autumn")(np.linspace(0.1, 1, len(canopy_data)))
+    n_exps = len(canopy_data)
+    col1_map = get_cmap("summer")(np.linspace(0.1, 1, n_exps))
+    col2_map = get_cmap("winter")(np.linspace(0.1, 1, n_exps))
+    col3_map = get_cmap("autumn")(np.linspace(0.1, 1, n_exps))
 
     # create plotting area
     plt.figure(figsize=(10, 9))
@@ -67,24 +65,25 @@ def main():
     ax1 = plt.subplot(plot_grid[0])
 
     # for each experiment
-    for (i, ((clab, canopy), (hlab, hourly))) in enumerate( \
-        zip(canopy_data.iteritems(), hourly_data.iteritems())):
+    for (i, (clab, canopy)) in enumerate(canopy_data.iteritems()):
 
         # resample to day timestep
         canp_upts = agg_tseries_up(canopy, ["trees_Ag", "grass_Ag"], 1e-6*12)
-        hour_upts = agg_tseries_up(hourly, ["GPP", "resp"], 1e-6*12)
 
         # time
         y_tseries = range(2001, 2015)
+        trees_Cf = canp_upts["year"]["trees_Ag"]
+        grass_Cf = canp_upts["year"]["grass_Ag"]
+        total_Cf = trees_Cf + grass_Cf
 
         # carbon
-        ax1.plot(y_tseries, -hour_upts["year"]["GPP"], 'o--', alpha=0.4, c=col1_map[i])
-        ax1.plot(y_tseries, canp_upts["year"]["trees_Ag"], 'o--', alpha=0.4, c=col2_map[i])
-        ax1.plot(y_tseries, canp_upts["year"]["grass_Ag"], 'o--', alpha=0.4, c=col3_map[i])
+        ax1.plot(y_tseries, total_Cf, 'o--', alpha=0.4, c=col1_map[i])
+        ax1.plot(y_tseries, trees_Cf, 'o--', alpha=0.4, c=col2_map[i])
+        ax1.plot(y_tseries, grass_Cf, 'o--', alpha=0.4, c=col3_map[i])
         # y ~ x
-        add_trend(ax1, y_tseries, -hour_upts["year"]["GPP"], col1_map[i], hlab)
-        add_trend(ax1, y_tseries, canp_upts["year"]["trees_Ag"], col2_map[i], clab)
-        add_trend(ax1, y_tseries, canp_upts["year"]["grass_Ag"], col3_map[i], clab)
+        add_trend(ax1, y_tseries, total_Cf, col1_map[i], clab)
+        add_trend(ax1, y_tseries, trees_Cf, col2_map[i], clab)
+        add_trend(ax1, y_tseries, grass_Cf, col3_map[i], clab)
 
     # limits
     ax1.set_ylim([300, 2100])
@@ -120,9 +119,8 @@ def main():
 
 if __name__ == "__main__":
 
-    FILEPATH = expanduser("~/Savanna/Data/HowardSprings_IAV/")
-    FILENAME1 = FILEPATH + "gasex/spa_treegrass_reduced.pkl"
-    FILENAME2 = FILEPATH + "bulkflux/spa_hourly_output.pkl"
+    FILEPATH = expanduser("~/Savanna/Data/HowardSprings_IAV/pickled_data/hourly/")
+    FILENAME = FILEPATH + "spa_treegrass_output.pkl"
 
     SAVEPATH = expanduser("~/Savanna/Analysis/figures/IAV/HWS_treegrass_gpptrends.pdf")
 

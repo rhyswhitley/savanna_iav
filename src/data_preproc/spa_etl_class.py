@@ -1,8 +1,10 @@
+import numpy as np
 import natsort
 import pandas as pd
-import os, re, cPickle
+import sys, os, re
 import time
-from joblib import Parallel, delayed
+import netCDF4 as nc
+import spa_ncdf_class as spa_nc
 
 __author__ = 'Rhys Whitley'
 __email__ = 'rhys.whitley@gmail.com'
@@ -31,19 +33,18 @@ class SPAoutput_ETL(object):
         super(SPAoutput_ETL, self).__init__()
         self.start_date = "2001-01-01"
         self.time_freq = "30min"
-        self.dirpath = None
-        self.savepath = None
         self.soil_depth = None
+        self.glay = 6 # index in canopy layers where grasses begin
 
-    def reduce_canopy(self, data_list, gtl=6):
+    def reduce_canopy(self, data_list):
         """
         Generalise the 10 canopy layer files into a dictionary of tree and
         grass dataframes
         """
         # split layer files into trees and grasses and
         # concatenate these together
-        trees_raw = pd.concat(data_list[:gtl], axis=0)
-        grass_raw = pd.concat(data_list[gtl:], axis=0)
+        trees_raw = pd.concat(data_list[:self.glay], axis=0)
+        grass_raw = pd.concat(data_list[self.glay:], axis=0)
 
         # columns to be summed
         sum_col = [1, 2, 6, 8, 9, 13]
@@ -65,31 +66,6 @@ class SPAoutput_ETL(object):
         tg_df.columns = ["{0}_{1}".format(h1, h2) for (h1, h2) in tg_df.columns]
         # return to user
         return tg_df
-
-    def clean_hourly_header(self, old_df):
-        """Replaces default hourly headers with a cleaner version"""
-        # new headers
-        new_headers = ["GPP", "Resp", "LE_total", "LE_veg", "LE_soil", "LE_wet", "Lambda"]
-        # remove first and last files
-        new_df = old_df.ix[:, 1:-1]
-        # add new headers
-        new_df.columns = new_headers
-        # return new data.frame
-        return new_df
-
-    def clean_swc_headers(self, old_df, soil_depths):
-        """Replaces default soil water content headers with a cleaner version"""
-        new_headers = ["swc_{0}cm".format(depth) for depth in soil_depths]
-        new_df = old_df.ix[:, 1:]
-        new_df.columns = new_headers + ["SWP_all"]
-        return new_df
-
-    def clean_upfr_headers(self, old_df, soil_depths, label):
-        """Replaces default water uptake headers with a cleaner version"""
-        new_headers = ["{0}_{1}cm".format(label, depth) for depth in soil_depths]
-        new_df = old_df.ix[:, 1:]
-        new_df.columns = new_headers
-        return new_df
 
     def import_spa_canopy(self, file_name, clayer):
         """
@@ -137,85 +113,131 @@ class SPAoutput_ETL(object):
         # calculate the cumulative thickness, equivalent to soil depth at each layer
         cumul_depth = [soil_layer[0] + sum(soil_layer[:i]) for i in range(len(soil_layer))]
         # return to user
-        self.soil_depth = cumul_depth
-    def load_gasex_data(self):
+        return cumul_depth
+    def load_gasex_raw(self, filepaths):
+        """
+        Special wrapper function to perform a mass import of the SPA canopy
+        layer outputs from a simulation folders. The canopy layer files are
+        individually imported and then aggregated into tree and grass
+        components using the reduce_canopy and flatten functions. These are
+        then added with the land-surface outputs to simulation ncdf files.
+        """
+        # Import the canopy layer output files from each model experiment
+        canopy_data = [self.import_spa_canopy(fname, i) \
+                        for (i, fname) in enumerate(filepaths)]
 
-        # Get the output file of interest from each of the experiment folders
-        path_lists = [natsort.natsorted([os.path.join(dp, f) for f in fn \
-                        if re.search(r'(^l.*csv)', f)]) \
-                        for (dp, dn, fn) in os.walk(self.dirpath) \
-                        if re.search(r'(outputs$)', dp)]
+        # Reduce and flatten the canopy layers into tree and grass outputs
+        treegrass_data = self.reduce_canopy(canopy_data)
+        treegrass_flat = self.flatten_dictlist(treegrass_data)
 
-        # create parallel versions of functions
-        #xp_imp_spa = delayed(self.import_spa_canopy)
-        #xp_red_can = delayed(self.reduce_canopy)
+        # Return to user
+        return treegrass_flat
 
-        print "Loading data ..."
-        # Import SPA output files
-        canopy_data = [[self.import_spa_canopy(e_p, i) for e_p in exp_paths] \
-                        for (i, exp_paths) in enumerate(path_lists)]
+    def load_hourly_raw(self, filepaths):
+        """
+        Wrapper function to perform a mass import of SPA outputs from a
+        simulation files using Pandas. Returns a dictionary that can be used
+        later to process outputs into ncdf file.
+        """
+        # import the land-surface output files from each model experiment
+        land_surf = {fname.split(".")[0].split("/")[-1]: \
+                    self.import_spa_output(fname) \
+                    for fname in filepaths}
 
-        print "Reducing data ..."
-        # Reduce the 10 layer output into generalised tree and grass outputs
-        treegrass_data = [self.reduce_canopy(cdata) for cdata in canopy_data]
+        return land_surf
 
-        # For each experiment flatten each dictionary of tree/grass outputs
-        # into one dataframe
-        data_flat = {"exp_{0}".format(i + 1): self.flatten_dictlist(ex_df) \
-                        for (i, ex_df) in enumerate(treegrass_data)}
+    def get_spa_filepaths(self, dir_path):
+        """
+        Given the top directory, find all subfolders that contain
+        outputs from the SPA 1 model.
 
-        # Pickle dataset
-        with open(self.savepath + "spa_treegrass_output.pkl", 'wb') as handle:
-            cPickle.dump(data_flat, handle)
+        regex_remove: controls the files that are ignored in the scan
+        regex_take: controls the subfolders that are search for SPA outputs
 
-        return data_flat
+        Returns file_list, which contains the full paths for each output
+        for each SPA simulation folder.
+        """
 
-    def load_hourly_data(self, otype='hourly'):
+        # Files to be ignored in the search
+        files_remove = ['canopy','DS_Store','ci','drivers','energy','iceprop', \
+                        'parcheck','power','waterfluxes','test','solar','daily']
+        # Turn list into a regex argument
+        regex_remove = r'^((?!{0}).)*$'.format("|".join(files_remove))
+        # Subfolders to be searched
+        regex_take = r'(inputs)|(outputs)$'
 
-        # get the output file of interest from each of the experiment folders
-        folders = [os.path.join(dp, f) \
-                for (dp, dn, fn) in os.walk(self.dirpath) \
-                for f in fn \
-                if re.search(otype, f)]
+        # Number of subfolders
+        n_subfold = len(regex_take.split("|"))
 
-        print "Loading data ..."
-        # import hourly output files from each model experiment
-        raw_data = [self.import_spa_output(fname) \
-                    for fname in folders]
+        # Walk down through the directory path looking for SPA files
+        raw_list = [[os.path.join(dp, f) \
+                    for f in fn \
+                    if re.search(regex_remove, f)] \
+                    for (dp, dn, fn) in os.walk(dir_path) \
+                    if re.search(regex_take, dp)]
 
-        # save the list of dataframes as a dictionary
-        data_frame = {"exp_{0}".format(i+1): cdata \
-                        for (i, cdata) in enumerate(raw_data)}
+        # Exit program if no files found
+        if len(raw_list) == 0:
+            # Echo user
+            sys.stderr.write('No output files found. Check your FilePath. \n')
+            sys.exit(-1)
+        else:
+            # Attach the two subfolders in each simulation together
+            file_list = [natsort.natsorted(raw_list[i] + raw_list[i+1]) \
+                        for i in np.arange(0, len(raw_list), n_subfold)]
+            # Pass back to user
+            return file_list
 
-        # save as a pickle object
-        pkl_savefile = "{0}spa_{1}_output.pkl" \
-            .format(self.savepath, otype)
-        with open(pkl_savefile, 'wb') as handle:
-            cPickle.dump(data_frame, handle)
+    def process_outputs(self, fpath_list, nc_fout):
+        """
+        Given a list of files from a simulation folder load them using pandas
+        and process them into netcdf4 files
+        """
+        # Static soil profile path
+        profpaths = [fp for fp in fpath_list if re.search(r'_soils', fp)][0]
+        # Paths for soil profile water fluxes
+        soilpaths = [fp for fp in fpath_list if re.search(r'soil(?!s)|upfrac', fp)]
+        # Canopy layer outputs
+        canopaths = [fp for fp in fpath_list if re.match(r'^.*[0-9]+.csv$', fp)][2:]
+        # Paths for land-surface fluxes
+        landpaths = [fp for fp in fpath_list \
+                     if re.search(r'^((?!l\d+|soil|upfrac|temp|phen).)*$', fp)]
 
-        return data_frame
+        # Canopy layer outputs
+        canopy10 = self.load_gasex_raw(canopaths)
+        # Land-surface and meteorology fluxes
+        landsurf = self.load_hourly_raw(landpaths)
+        # Below-ground water fluxes
+        watrprof = self.load_hourly_raw(soilpaths)
+        # soil layer thicknesses
+        soil_thick = self.import_soil_profile(profpaths)
 
-#
-#        # clean-up dataframes based on output type
-#        if otype is "hourly":
-#            clean_data = [self.clean_hourly_header(rd) \
-#                          for rd in raw_data]
-#        elif otype is "soilwater":
-#            clean_data = [self.clean_swc_headers(rd, self.soil_depth) \
-#                          for rd in raw_data]
-#        else:
-#            clean_data = [self.clean_upfr_headers(rd, self.soil_depth, "upfrac") \
-#                          for rd in raw_data]
-#
+        # Open a NCDF4 file for SPA simulation outputs
+        nc_file = nc.Dataset(nc_fout, 'w', format='NETCDF4')
 
-#        # Write to csv file as well
-#        for (tg_lab, tg_df) in tg_data.iteritems():
-#            print "Writing SPA gasex file for {0}".format(tg_lab)
-#            tg_df.to_csv("{0}{1}-gasex_HWS.csv".format(self.savepath, tg_lab))
+        # Assign attributes
+        ncdf_attr = spa_nc.spa_netCDF4()
+        ncdf_attr.assign_variables(nc_file)
+        ncdf_attr.assign_units(nc_file)
+        ncdf_attr.assign_longNames(nc_file)
 
-#        # write to csv
-#        for (i, cdata) in enumerate(clean_data):
-#            print "Writing SPA {0} file for Exp_{1}".format(otype, i+1)
-#            csv_savefile = "{0}/exp_{1}-{2}_HWS.csv" \
-#                .format(self.savepath, i+1, otype)
-#            cdata.to_csv(csv_savefile)
+        # Assign values to variables
+        tseries = pd.timedelta_range(0, periods=len(landsurf['hourly']), freq="1800s") \
+                    .astype('timedelta64[s]')
+
+        # Get time from netcdf driver file
+        nc_file.variables['time'][:] = np.array(tseries)
+        # [Land-surface fluxes]
+        nc_file.variables['GPP'][:] = np.array(landsurf['hourly']['gpp'])
+        nc_file.variables['Qle'][:] = np.array(landsurf['hourly']['lemod'])
+        nc_file.variables['TVeg'][:] = np.array(landsurf['hourly']['transle'])
+        nc_file.variables['Esoil'][:] = np.array(landsurf['hourly']['soille'])
+        nc_file.variables['Ecanop'][:] = np.array(landsurf['hourly']['wetle'])
+        nc_file.variables['AutoResp'][:] = np.array(landsurf['hourly']['resp'])
+        # [Vegetation fluxes]
+        nc_file.variables['Atree'][:] = np.array(canopy10['trees_Ag'])
+        nc_file.variables['Agrass'][:] = np.array(canopy10['grass_Ag'])
+
+        # Close file
+        nc_file.close()
+
