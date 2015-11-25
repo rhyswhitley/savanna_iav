@@ -2,15 +2,41 @@
 
 import os, re
 import subprocess as sub
+from joblib import Parallel, delayed
+from multiprocessing import cpu_count
+
+def run_SPAbin(bin_fpath, nex):
+    # Echo to user
+    print("Running SPA simulation for HWS Experiment {0}".format(nex))
+
+    # take the head of the file path to tell the subproces which directory
+    # to execute in
+    bin_cwd = os.path.split(bin_fpath)[0]
+
+    # execture the SPA Fortran binary
+    proc = sub.Popen(bin_fpath, cwd=bin_cwd, bufsize=1, shell=False,
+                        close_fds=False)
+
+    # Slight pause to allow python to catchup with the terminal
+    proc.wait()
 
 def main():
 
-    binary_locs = [os.path.join(dp, f) for (dp, fp, fn) \
-                in os.walk(DIRPATH) for f in fn \
-                if re.match('SPA', f)]
+    # Get the number of available cores for multi-proc
+    num_cores = cpu_count()
 
-    p = [sub.Popen(spa_bin) for spa_bin in binary_locs]
-    #p = [sub.Popen(spa_bin, stdout=sub.PIPE, stderr=sub.PIPE) for spa_bin in binary_locs]
+    # Get paths to each SPA binary under the set directory path
+    binary_locs = [os.path.join(dp, f) for (dp, fp, fn) \
+                    in os.walk(DIRPATH) for f in fn \
+                    if re.match('SPA', f)]
+
+    # Execute each binary collected from the above path search
+#    for (i, bin_fpath) in enumerate(binary_locs):
+#        run_SPAbin(bin_fpath, i+1)
+
+    # Execute each binary collected from the above path search
+    Parallel(n_jobs=num_cores)(delayed(run_SPAbin)(bin_path, i+1) \
+        for (i, bin_path) in enumerate(binary_locs))
 
     return 1
 

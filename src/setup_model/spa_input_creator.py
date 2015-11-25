@@ -1,11 +1,11 @@
 #!/usr/bin/env python2
 
+import os, errno
+import netCDF4 as nc
 import numpy as np
 import pandas as pd
-import datetime as dt
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from os.path import expanduser
 from scipy import integrate
 
 def create_phen_file(lai_ts):
@@ -176,7 +176,12 @@ def expand_climatology(dataset):
     full_tseries2 = full_tseries.reset_index(drop=True)
     return full_tseries2.set_index(['DT'])
 
+def mix_climatology(dataset1, dataset2, ycol):
+    dataset3 = dataset1.copy()
+    dataset3[ycol] = dataset2[ycol]
+    return dataset3
 def plot_inputs(dataset, phen, EX=1):
+
     n_plots = 6
     gs = gridspec.GridSpec(n_plots, 1)
     ax1 = [plt.subplot(gs[i]) for i in range(n_plots)]
@@ -211,14 +216,104 @@ def plot_inputs(dataset, phen, EX=1):
 
     plt.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.05, hspace=0.1)
     plt.savefig(figure_path + plt_label.replace(' ', '_') + ".pdf", rasterized=True)
+
     return None
 
-def mix_climatology(dataset1, dataset2, ycol):
-    dataset3 = dataset1.copy()
-    dataset3[ycol] = dataset2[ycol]
-    return dataset3
+def assign_variables(nc_obj):
+    # CREATE DIMENSIONS
+    nc_obj.createDimension('x', 1)
+    nc_obj.createDimension('y', 1)
+    nc_obj.createDimension('z', 1)
+    nc_obj.createDimension('time', None)
+    # CREATE VARIABLES
+    nc_obj.createVariable('x', 'f8', ('x'))
+    nc_obj.createVariable('y', 'f8', ('y'))
+    nc_obj.createVariable('latitude', 'f8', ('x', 'y'))
+    nc_obj.createVariable('longitude', 'f8', ('x', 'y'))
+    nc_obj.createVariable('time', 'f8', ('time'))
+    # >> [Time-varying values]
+    # >> Local Meteorology
+    nc_obj.createVariable('SWdown', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('Tair', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('VPD', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('Cair', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('Wind', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('Rainfall', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('LAI', 'f8', ('time', 'x', 'y'))
+    # >> Climatologies
+    nc_obj.createVariable('clim_SWdown', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('clim_Tair', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('clim_VPD', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('clim_Cair', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('clim_Wind', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('clim_Rainfall', 'f8', ('time', 'x', 'y'))
+    nc_obj.createVariable('clim_LAI', 'f8', ('time', 'x', 'y'))
+    return None
+
+def assign_units(nc_obj, start_date):
+    # ASSIGN UNITS
+    # >> [Dimensions]
+    nc_obj.variables['x'].units = ""
+    nc_obj.variables['y'].units = ""
+    nc_obj.variables['latitude'].units = "degrees_north"
+    nc_obj.variables['longitude'].units = "degrees_east"
+    nc_obj.variables['time'].units = "seconds since " + start_date
+    # >> [Time-varying values]
+    # >> Local Meteorology
+    nc_obj.variables['SWdown'].units = "W/m^2"
+    nc_obj.variables['Tair'].units = "degrees Celsius"
+    nc_obj.variables['VPD'].units = "kPa"
+    nc_obj.variables['Cair'].units = "umol/mol"
+    nc_obj.variables['Wind'].units = "m/s"
+    nc_obj.variables['Rainfall'].units = "mm"
+    nc_obj.variables['LAI'].units = "m^2/m^2"
+    # >> Climatologies
+    nc_obj.variables['clim_SWdown'].units = "W/m^2"
+    nc_obj.variables['clim_Tair'].units = "degrees Celsius"
+    nc_obj.variables['clim_VPD'].units = "kPa"
+    nc_obj.variables['clim_Cair'].units = "umol/mol"
+    nc_obj.variables['clim_Wind'].units = "m/s"
+    nc_obj.variables['clim_Rainfall'].units = "mm"
+    nc_obj.variables['clim_LAI'].units = "m^2/m^2"
+    return None
+
+def assign_longNames(nc_obj):
+    # LONG NAMES
+    nc_obj.variables['SWdown'].longname = "Downwelling shortwave radiation"
+    nc_obj.variables['Tair'].longname = "Air temperature"
+    nc_obj.variables['VPD'].longname = "Vapour pressure deficit"
+    nc_obj.variables['Cair'].longname = "Atmospheric CO2 concentration"
+    nc_obj.variables['Wind'].longname = "Wind speed"
+    nc_obj.variables['Rainfall'].longname = "Precipitation"
+    nc_obj.variables['LAI'].longname = "MODIS 8-day composite leaf area index"
+    # Vegetation
+    nc_obj.variables['clim_SWdown'].longname = "Downwelling shortwave radiation"
+    nc_obj.variables['clim_Tair'].longname = "Air temperature"
+    nc_obj.variables['clim_VPD'].longname = "Vapour pressure deficit"
+    nc_obj.variables['clim_Cair'].longname = "Atmospheric CO2 concentration"
+    nc_obj.variables['clim_Wind'].longname = "Wind speed"
+    nc_obj.variables['clim_Rainfall'].longname = "Precipitation"
+    nc_obj.variables['clim_LAI'].longname = "MODIS 8-day composite leaf area index"
+    return None
+
+def ensure_dir(path):
+    # Create folders for storage if they done exist
+    try:
+        if not os.path.exists(path):
+            os.makedirs(path)
+    except OSError as exc: # Python >2.5
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else: raise
 
 def main():
+
+    #----------------------------------------------------------------------
+    # STAGE DATA
+    #----------------------------------------------------------------------
+
+    # create the directories if they don't exist
+    [ensure_dir(fpath) for fpath in INPUT_FOLDERS]
 
     # import datasets to create experiment input files
     climo_raw = import_one_year(clim_met_file)
@@ -227,54 +322,97 @@ def main():
     # expand climatology out to 14 years (2001 to 2015)
     climo_14yr = expand_climatology(climo_raw)
 
-    # universal phenology file
-    spa_phen_1 = create_phen_file(tower_raw["Lai_1km_new_smooth"])
-    # experiment 2
-    spa_phen_2 = create_phen_file(climo_14yr["Lai_1km_new_smooth"])
-
-    # universal phenology file
-    spa_phen_1.to_csv(input_phen_1, sep=",", index=False)
-    spa_phen_2.to_csv(input_phen_2, sep=",", index=False)
+    #----------------------------------------------------------------------
+    # METEOROLOGY FILE CREATION
+    #----------------------------------------------------------------------
 
     # experiment 1
     spa_met_1 = clean_tower_data(tower_raw)
     # experiment 2
     spa_met_2 = clean_tower_data(climo_14yr)
 
-    # save these figures to make sure input files are constructed correctly
-    plot_inputs(spa_met_1, spa_phen_1, 1)
-    plot_inputs(spa_met_2, spa_phen_2, 2)
+#    # experiment simulations
+#    spa_met_1.to_csv(INPUT_FILES[0], sep=",", index=False)
+#    spa_met_2.to_csv(INPUT_FILES[1], sep=",", index=False)
+#
+#    # swap on these variables
+#    var_on = ["CO2", "Ta_Con", "Precip_Con", "Fsd_Con", "VPD_Con"]
+#
+#    # experiment 3 to 7
+#    spa_met_x = [mix_climatology(spa_met_2, spa_met_1, vo) for vo in var_on]
+#    for i in range(len(var_on)):
+#        spa_met_x[i].to_csv(INPUT_FILES[2 + i], sep=",", index=False)
+#        exp_int = i + 3
 
-    # experiment simulations
-    spa_met_1.to_csv(input_folders[0], sep=",", index=False)
-    spa_met_2.to_csv(input_folders[1], sep=",", index=False)
+    #----------------------------------------------------------------------
+    # PHENOLOGY FILE CREATION
+    #----------------------------------------------------------------------
 
-    # swap on these variables
-    var_on = ["CO2", "Ta_Con", "Precip_Con", "Fsd_Con", "VPD_Con"]
+    # universal phenology file
+    spa_phen_1 = create_phen_file(tower_raw["Lai_1km_new_smooth"])
+    # experiment 2
+    spa_phen_2 = create_phen_file(climo_14yr["Lai_1km_new_smooth"])
 
-    # experiment 3 to 7
-    spa_met_x = [mix_climatology(spa_met_2, spa_met_1, vo) for vo in var_on]
-    for i in range(len(var_on)):
-        spa_met_x[i].to_csv(input_folders[2 + i], sep=",", index=False)
-        exp_int = i + 3
-        plot_inputs(spa_met_x[i], spa_phen_2, exp_int)
+#    # universal phenology file
+#    spa_phen_1.to_csv(INPUT_PHEN_1, sep=",", index=False)
+#    spa_phen_2.to_csv(INPUT_PHEN_2, sep=",", index=False)
 
-    # WRITE TO CSV FILES
+    LAI_phen1_30min = spa_phen_1["lai"].resample('30min', fill_method="ffill")
+    LAI_phen2_30min = spa_phen_2["lai"].resample('30min', fill_method="ffill")
+
+    #----------------------------------------------------------------------
+    # NETCDF CREATION
+    #----------------------------------------------------------------------
+
+    # Open a NCDF4 file for SPA simulation outputs
+    nc_fout = NCSAVEPATH + "spa_hws_inputs.nc"
+    nc_file = nc.Dataset(nc_fout, 'w', format='NETCDF4')
+
+    assign_variables(nc_file)
+    assign_units(nc_file, "2001-01-01 00:00:30")
+    assign_longNames(nc_file)
+
+    # Assign values to variables
+    tseries = pd.timedelta_range(0, periods=len(spa_met_1), freq="1800s") \
+                .astype('timedelta64[s]')
+
+    # Get time from netcdf driver file
+    nc_file.variables['time'][:] = np.array(tseries)
+    # Local Meteorologies
+    nc_file.variables['SWdown'][:] = np.array(spa_met_1['Fsd_Con'])
+    nc_file.variables['VPD'][:] = np.array(spa_met_1['VPD_Con'])
+    nc_file.variables['Tair'][:] = np.array(spa_met_1['Ta_Con'])
+    nc_file.variables['Cair'][:] = np.array(spa_met_1['CO2'])
+    nc_file.variables['Wind'][:] = np.array(spa_met_1['Ws_CSAT_Con'])
+    nc_file.variables['Rainfall'][:] = np.array(spa_met_1['Precip_Con'])
+    nc_file.variables['LAI'][:] = np.array(LAI_phen1_30min)
+    # Climatologies
+    nc_file.variables['clim_SWdown'][:] = np.array(spa_met_2['Fsd_Con'])
+    nc_file.variables['clim_VPD'][:] = np.array(spa_met_2['VPD_Con'])
+    nc_file.variables['clim_Tair'][:] = np.array(spa_met_2['Ta_Con'])
+    nc_file.variables['clim_Cair'][:] = np.array(spa_met_2['CO2'])
+    nc_file.variables['clim_Wind'][:] = np.array(spa_met_2['Ws_CSAT_Con'])
+    nc_file.variables['clim_Rainfall'][:] = np.array(spa_met_2['Precip_Con'])
+    nc_file.variables['clim_LAI'][:] = np.array(LAI_phen2_30min)
+
+    nc_file.close()
+
     return 1
-
-
-
 
 if __name__ == "__main__":
 
-    clim_met_file = expanduser("~/Dropbox/30 minute met driver climatology v12a HowardSprings.csv")
-    ec_tower_file = expanduser("~/Dropbox/30 minute met driver 2001-2015 v12a HowardSprings.csv")
+    clim_met_file = os.path.expanduser("~/Dropbox/30 minute met driver climatology v12a HowardSprings.csv")
+    ec_tower_file = os.path.expanduser("~/Dropbox/30 minute met driver 2001-2015 v12a HowardSprings.csv")
 
-    input_path = expanduser("~/Savanna/Models/SPA1/outputs/site_co2/HowardSprings/inputs/")
-    input_folders = ["{0}hs_met_exp_{1}.csv".format(input_path, i) for i in range(1, 8)]
-    input_phen_1 = input_path + "hs_phen_exp_1.csv"
-    input_phen_2 = input_path + "hs_phen_exp_all.csv"
+    INPUT_PATH = os.path.expanduser("~/Savanna/Models/SPA1/outputs/site_co2")
+    INPUT_FOLDERS = ["{0}/HS_Exp{1}/inputs".format(INPUT_PATH, i) for i in range(1, 8)]
 
-    figure_path = expanduser("~/Savanna/Analysis/figures/IAV/inputs/")
+    INPUT_FILES = ["{0}/hs_met_exp_{1}.csv".format(path, i+1) \
+                   for (i, path) in enumerate(INPUT_FOLDERS)]
+
+    INPUT_PHEN_1 = "{0}/common_inputs/hs_phen_exp_1.csv".format(INPUT_PATH)
+    INPUT_PHEN_2 = "{0}/common_inputs/hs_phen_exp_all.csv".format(INPUT_PATH)
+
+    NCSAVEPATH = os.path.expanduser("~/Savanna/Data/HowardSprings_IAV/ncdf/")
 
     main()
