@@ -157,23 +157,21 @@ class SPAoutput_ETL(object):
         Returns file_list, which contains the full paths for each output
         for each SPA simulation folder.
         """
-
         # Files to be ignored in the search
         files_remove = ['canopy','DS_Store','ci','drivers','energy','iceprop', \
                         'parcheck','power','waterfluxes','test','solar','daily']
         # Turn list into a regex argument
         regex_remove = r'^((?!{0}).)*$'.format("|".join(files_remove))
         # Subfolders to be searched
-        regex_take = r'(inputs)|(outputs)$'
+        regex_take = r'(\binputs\b)|(\boutputs\b)$'
 
         # Number of subfolders
         n_subfold = len(regex_take.split("|"))
 
         # Walk down through the directory path looking for SPA files
-        raw_list = [[os.path.join(dp, f) \
-                    for f in fn \
+        raw_list = [[os.path.join(dp, f) for f in fn \
                     if re.search(regex_remove, f)] \
-                    for (dp, dn, fn) in os.walk(dir_path) \
+                    for (dp, dn, fn) in os.walk(dir_path, followlinks=False) \
                     if re.search(regex_take, dp)]
 
         # Exit program if no files found
@@ -208,9 +206,11 @@ class SPAoutput_ETL(object):
         # Land-surface and meteorology fluxes
         landsurf = self.load_hourly_raw(landpaths)
         # Below-ground water fluxes
-        watrprof = self.load_hourly_raw(soilpaths)
+        #watrprof = self.load_hourly_raw(soilpaths)
         # soil layer thicknesses
-        soil_thick = self.import_soil_profile(profpaths)
+        #soil_thick = self.import_soil_profile(profpaths)
+
+        print("> writing netCDF file: {0}".format(nc_fout))
 
         # Open a NCDF4 file for SPA simulation outputs
         nc_file = nc.Dataset(nc_fout, 'w', format='NETCDF4')
@@ -237,6 +237,14 @@ class SPAoutput_ETL(object):
         # [Vegetation fluxes]
         nc_file.variables['Atree'][:] = np.array(canopy10['trees_Ag'])
         nc_file.variables['Agrass'][:] = np.array(canopy10['grass_Ag'])
+        nc_file.variables['Rtree'][:] = np.array(canopy10['trees_Rd'])
+        nc_file.variables['Rgrass'][:] = np.array(canopy10['grass_Rd'])
+        nc_file.variables['Etree'][:] = np.array(canopy10['trees_Et'])
+        nc_file.variables['Egrass'][:] = np.array(canopy10['grass_Et'])
+        nc_file.variables['Gtree'][:] = np.array(canopy10['trees_gs'])
+        nc_file.variables['Ggrass'][:] = np.array(canopy10['grass_gs'])
+        nc_file.variables['LAItree'][:] = np.array(canopy10['trees_LAI'])
+        nc_file.variables['LAIgrass'][:] = np.array(canopy10['grass_LAI'])
 
         # Close file
         nc_file.close()

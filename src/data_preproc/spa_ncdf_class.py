@@ -2,7 +2,7 @@
 
 class spa_netCDF4(object):
     def __init__(self):
-        self.start_date = "2001-01-01 00:00:30"
+        self.start_date = "2001-01-01 00:00:00"
 
     def assign_variables(self, nc_obj):
         # CREATE DIMENSIONS

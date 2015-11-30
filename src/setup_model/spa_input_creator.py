@@ -4,8 +4,11 @@ import os, errno
 import netCDF4 as nc
 import numpy as np
 import pandas as pd
+import matplotlib.lines as mlines
+import matplotlib.dates as dates
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from matplotlib import style
 from scipy import integrate
 
 def create_phen_file(lai_ts):
@@ -180,27 +183,75 @@ def mix_climatology(dataset1, dataset2, ycol):
     dataset3 = dataset1.copy()
     dataset3[ycol] = dataset2[ycol]
     return dataset3
-def plot_inputs(dataset, phen, EX=1):
 
+def smooth_data(dataset):
+    dayint = lambda x: integrate.trapz(x, dx=1800)*1e-6
+
+    # sample functions
+    samplers = [np.mean]*4 + [dayint, np.mean, dayint, np.sum]
+    # dictionary to pass to resample
+    sample_dict = {lab: samp for (lab, samp) in zip(dataset.columns, samplers*2)}
+
+    # downsampled to daily time-scale
+    daily_data = dataset.resample("D", how=sample_dict)
+
+    # smooth data using a 14-day rolling mean
+    rolling = lambda x: pd.rolling_mean(x, window=14, min_periods=1)
+    new_dataset = daily_data.apply(rolling, axis=0)
+
+    # return new dataset
+    return new_dataset
+
+def plot_inputs(dataset, phen, swap_var=None, EX=1):
+
+    plt.rcParams['lines.linewidth'] = 1.25
+    plt.rcParams.update({'mathtext.default': 'regular'})
+    style.use('ggplot')
+    ncols = plt.rcParams['axes.color_cycle']
     n_plots = 6
+
+    #import ipdb; ipdb.set_trace()
+    fig = plt.figure(figsize=(8, 9))
     gs = gridspec.GridSpec(n_plots, 1)
     ax1 = [plt.subplot(gs[i]) for i in range(n_plots)]
-    # turn off x labels
-    for (i, subax) in enumerate(ax1):
-        if i < len(ax1) - 1:
-            subax.axes.get_xaxis().set_visible(False)
+
+     # turn off x labels
+    for i in range(5):
+        ax1[i].xaxis.set_ticklabels([])
+
+    agg_data = smooth_data(dataset)
+    agg_data['lai'] = phen['lai']
 
     # plots
-    time_x = pd.date_range(start="2001-01-01", end="2014-12-31", freq='D') #.to_pydatetime()
-    ax1[0].plot_date(time_x, dataset["Fsd_Con"].resample('D', how=lambda x: integrate.trapz(x, dx=1800)*1e-6), '-', c='red')
-    ax1[1].plot_date(time_x, dataset["VPD_Con"].resample('D', how='mean'), '-', c='purple')
-    ax1[2].plot_date(time_x, dataset["Ta_Con"].resample('D', how='mean'), '-', c='orange')
-    ax1[3].plot_date(time_x, dataset["Ws_CSAT_Con"].resample('D', how='mean'), '-', c='darkgreen')
-    ax1[4].plot_date(time_x, dataset["Precip_Con"].resample('D', how='sum'), '-', c='blue')
-    ax2 = ax1[4].twinx()
-    ax2.plot_date(time_x, dataset["CO2"].resample('D', how='mean'), '-', c='black', lw=2)
-    ax1[5].plot_date(time_x, phen["lai"], '-', c='green')
+    date_ticks = pd.date_range("2001", periods=15, freq='AS')
+    time_x = agg_data.index
 
+    plot_vars = ["Fsd_Con", "VPD_Con", "Ta_Con", "Ws_CSAT_Con", "Precip_Con", "lai"]
+    pcols = [ncols[0]]*7
+    if swap_var is not None:
+        if swap_var == "CO2":
+            swap_ix = 4;
+        else:
+            swap_ix = plot_vars.index(swap_var)
+        pcols[swap_ix] = ncols[1]
+
+    for (i, pvar) in enumerate(plot_vars):
+        if i != 4:
+            ax1[i].plot_date(time_x, agg_data[pvar], '-', c=pcols[i])
+        else:
+            if swap_var == "CO2":
+                bcol = ncols[0]
+                ccol = pcols[i]
+            elif swap_var == "Precip_Con":
+                bcol = pcols[i]
+                ccol = ncols[0]
+            else:
+                bcol = pcols[i]
+                ccol = pcols[i]
+            ax1[i].bar(time_x, agg_data[pvar], color=None, edgecolor=bcol, alpha=0.3)
+            ax1[i].xaxis_date()
+            ax2 = ax1[i].twinx()
+            ax2.plot_date(time_x, agg_data["CO2"], '-', c=ccol, lw=2.5)
     # labels
     plt_label = "Howard Springs Experiment {0} Inputs".format(EX)
     ax1[0].set_title(plt_label)
@@ -214,7 +265,30 @@ def plot_inputs(dataset, phen, EX=1):
     for i in range(len(ax1)):
         ax1[i].yaxis.set_label_coords(-0.07, 0.5)
 
-    plt.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.05, hspace=0.1)
+       # limits
+    ax1[0].set_ylim([10, 30])
+    ax1[5].set_ylim([0.5, 2.5])
+    ax2.set_ylim([350, 400])
+
+    # axis
+    ax2.grid(False)
+    for i in range(len(ax1)):
+        ax1[i].set_xticks(date_ticks)
+    ax1[5].xaxis.set_ticklabels(date_ticks, rotation=45, ha="center", fontsize=11)
+    ax1[5].xaxis.set_major_formatter(dates.DateFormatter('%Y'))
+
+    # custom legend lines
+    held_line = mlines.Line2D([], [], color=ncols[0], lw=2, marker=None, label="held variables")
+    pert_line = mlines.Line2D([], [], color=ncols[1], lw=2, marker=None, label="perturbed variable")
+
+    # plot legend
+    ax1[5].legend(handles=[held_line, pert_line], bbox_to_anchor=(0.5, -0.4), \
+                  loc='upper center', ncol=2, prop={'size':10})
+
+    plt.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.1, hspace=0.15)
+
+    # saving
+    figure_path = os.path.expanduser("~/Savanna/Analysis/figures/IAV/inputs/")
     plt.savefig(figure_path + plt_label.replace(' ', '_') + ".pdf", rasterized=True)
 
     return None
@@ -322,6 +396,7 @@ def main():
     # expand climatology out to 14 years (2001 to 2015)
     climo_14yr = expand_climatology(climo_raw)
 
+
     #----------------------------------------------------------------------
     # METEOROLOGY FILE CREATION
     #----------------------------------------------------------------------
@@ -331,18 +406,20 @@ def main():
     # experiment 2
     spa_met_2 = clean_tower_data(climo_14yr)
 
-#    # experiment simulations
-#    spa_met_1.to_csv(INPUT_FILES[0], sep=",", index=False)
-#    spa_met_2.to_csv(INPUT_FILES[1], sep=",", index=False)
-#
-#    # swap on these variables
-#    var_on = ["CO2", "Ta_Con", "Precip_Con", "Fsd_Con", "VPD_Con"]
-#
-#    # experiment 3 to 7
-#    spa_met_x = [mix_climatology(spa_met_2, spa_met_1, vo) for vo in var_on]
-#    for i in range(len(var_on)):
-#        spa_met_x[i].to_csv(INPUT_FILES[2 + i], sep=",", index=False)
-#        exp_int = i + 3
+    # swap on these variables
+    var_on = ["CO2", "Ta_Con", "Precip_Con", "Fsd_Con", "VPD_Con"]
+    # experiment 3 to 7
+    spa_met_x1 = [mix_climatology(spa_met_2, spa_met_1, vo) for vo in var_on]
+    # experiments 9 to 14
+    spa_met_x2 = [mix_climatology(spa_met_1, spa_met_2, vo) for vo in var_on]
+
+    # write experiment simulations to file
+    spa_met_1.to_csv(INPUT_FILES1[0], sep=",", index=False)
+    spa_met_2.to_csv(INPUT_FILES1[1], sep=",", index=False)
+    for (ix, (spa_df1, spa_df2)) in enumerate(zip(spa_met_x1, spa_met_x2)):
+        spa_df1.to_csv(INPUT_FILES1[2 + ix], sep=",", index=False)
+        spa_df2.to_csv(INPUT_FILES2[ix], sep=",", index=False)
+
 
     #----------------------------------------------------------------------
     # PHENOLOGY FILE CREATION
@@ -353,16 +430,41 @@ def main():
     # experiment 2
     spa_phen_2 = create_phen_file(climo_14yr["Lai_1km_new_smooth"])
 
-#    # universal phenology file
-#    spa_phen_1.to_csv(INPUT_PHEN_1, sep=",", index=False)
-#    spa_phen_2.to_csv(INPUT_PHEN_2, sep=",", index=False)
+    # universal phenology file
+    spa_phen_1.to_csv(INPUT_PHEN_1, sep=",", index=False)
+    spa_phen_2.to_csv(INPUT_PHEN_2, sep=",", index=False)
 
-    LAI_phen1_30min = spa_phen_1["lai"].resample('30min', fill_method="ffill")
-    LAI_phen2_30min = spa_phen_2["lai"].resample('30min', fill_method="ffill")
+
+    #----------------------------------------------------------------------
+    # CREATE SYMBOLIC LINKS
+    #----------------------------------------------------------------------
+
+
+    #----------------------------------------------------------------------
+    # PLOT OUTPUTS **CHECKING
+    #----------------------------------------------------------------------
+
+    # experiments 1 and 2
+    plot_inputs(spa_met_1, spa_phen_1, None, 1)
+    plot_inputs(spa_met_2, spa_phen_2, None, 2)
+
+    # experiments 8 and 14
+    plot_inputs(spa_met_2, spa_phen_1, "lai", 8)
+    plot_inputs(spa_met_1, spa_phen_2, "lai", 14)
+
+    # experiments 3 to 7 & 9 to 14
+    for (ic, (spa_df1, spa_df2)) in enumerate(zip(spa_met_x1, spa_met_x2)):
+        plot_inputs(spa_df1, spa_phen_2, var_on[ic], ic + 3)
+        plot_inputs(spa_df2, spa_phen_1, var_on[ic], ic + 9)
+
 
     #----------------------------------------------------------------------
     # NETCDF CREATION
     #----------------------------------------------------------------------
+
+    # up-sample LAI to the same timestep as meteorology for ncdf export
+    LAI_phen1_30min = spa_phen_1["lai"].resample('30min', fill_method="ffill")
+    LAI_phen2_30min = spa_phen_2["lai"].resample('30min', fill_method="ffill")
 
     # Open a NCDF4 file for SPA simulation outputs
     nc_fout = NCSAVEPATH + "spa_hws_inputs.nc"
@@ -405,10 +507,12 @@ if __name__ == "__main__":
     ec_tower_file = os.path.expanduser("~/Dropbox/30 minute met driver 2001-2015 v12a HowardSprings.csv")
 
     INPUT_PATH = os.path.expanduser("~/Savanna/Models/SPA1/outputs/site_co2")
-    INPUT_FOLDERS = ["{0}/HS_Exp{1}/inputs".format(INPUT_PATH, i) for i in range(1, 8)]
+    INPUT_FOLDERS = ["{0}/HS_Exp{1}/inputs".format(INPUT_PATH, i) for i in range(1, 8) + range(9, 14)]
 
-    INPUT_FILES = ["{0}/hs_met_exp_{1}.csv".format(path, i+1) \
-                   for (i, path) in enumerate(INPUT_FOLDERS)]
+    INPUT_FILES1 = ["{0}/hs_met_exp_{1}.csv".format(path, i+1) \
+                    for (i, path) in enumerate(INPUT_FOLDERS[:7])]
+    INPUT_FILES2 = ["{0}/hs_met_exp_{1}.csv".format(path, i+9) \
+                    for (i, path) in enumerate(INPUT_FOLDERS[7:])]
 
     INPUT_PHEN_1 = "{0}/common_inputs/hs_phen_exp_1.csv".format(INPUT_PATH)
     INPUT_PHEN_2 = "{0}/common_inputs/hs_phen_exp_all.csv".format(INPUT_PATH)
@@ -416,3 +520,4 @@ if __name__ == "__main__":
     NCSAVEPATH = os.path.expanduser("~/Savanna/Data/HowardSprings_IAV/ncdf/")
 
     main()
+

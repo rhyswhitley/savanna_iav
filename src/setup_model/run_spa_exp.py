@@ -30,6 +30,9 @@ def main():
                     in os.walk(DIRPATH) for f in fn \
                     if re.match('SPA', f)]
 
+    for blocs in binary_locs:
+        print blocs
+
     # Execute each binary collected from the above path search
 #    for (i, bin_fpath) in enumerate(binary_locs):
 #        run_SPAbin(bin_fpath, i+1)
