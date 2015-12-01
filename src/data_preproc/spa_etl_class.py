@@ -34,7 +34,7 @@ class SPAoutput_ETL(object):
         self.start_date = "2001-01-01"
         self.time_freq = "30min"
         self.soil_depth = None
-        self.glay = 6 # index in canopy layers where grasses begin
+        self.glay = 5 # index in canopy layers where grasses begin
 
     def reduce_canopy(self, data_list):
         """
@@ -47,14 +47,26 @@ class SPAoutput_ETL(object):
         grass_raw = pd.concat(data_list[self.glay:], axis=0)
 
         # columns to be summed
-        sum_col = [1, 2, 6, 8, 9, 13]
-        # create dictionary to apply fun to each column via label
-        met_labs = {ml: "sum" if i in sum_col else "mean" \
-                    for (i, ml) in enumerate(trees_raw.columns)}
+        not_col = lambda x, y: x.columns - x.columns[y]
+        sums_col = [1, 2, 6, 8, 9, 13]
+        mean_col = not_col(trees_raw, sums_col)
 
-        # group on each time-step and aggregate across canopy layers
-        trees_grp = trees_raw.groupby(level=0).aggregate(met_labs)
-        grass_grp = grass_raw.groupby(level=0).aggregate(met_labs)
+        # lambda for quick convert and group
+        convgrp = lambda x: x.convert_objects(convert_numeric=True)\
+            .groupby(level=0)
+
+        # do separate groupbys for sums and means so we can exploit
+        # the faster cython operability
+
+        # trees
+        trees_sums = convgrp(trees_raw.ix[:, sums_col]).sum()
+        trees_mean = convgrp(trees_raw.ix[:, mean_col]).mean()
+        trees_grp = pd.concat([trees_sums, trees_mean], axis=1)
+
+        # grasses
+        grass_sums = convgrp(grass_raw.ix[:, sums_col]).sum()
+        grass_mean = convgrp(grass_raw.ix[:, mean_col]).mean()
+        grass_grp = pd.concat([grass_sums, grass_mean], axis=1)
 
         return {'trees' : trees_grp, 'grass' : grass_grp}
 
@@ -184,7 +196,7 @@ class SPAoutput_ETL(object):
             file_list = [natsort.natsorted(raw_list[i] + raw_list[i+1]) \
                         for i in np.arange(0, len(raw_list), n_subfold)]
             # Pass back to user
-            return file_list
+            return natsort.natsorted(file_list)
 
     def process_outputs(self, fpath_list, nc_fout):
         """

@@ -6,6 +6,7 @@ import netCDF4 as nc
 import numpy as np
 import pandas as pd
 import pickle
+from natsort import natsorted
 # mpi
 from joblib import delayed, Parallel
 from multiprocessing import cpu_count, Pool
@@ -48,8 +49,8 @@ def main():
     proc_pool = Pool(num_cores)
 
     # Get the filepaths for each experiment's output ncdf file
-    nc_paths = [os.path.join(dp, f) for (dp, dn, fn) in os.walk(DIRPATH) \
-                    for f in fn if re.search("^((?!DS_Store|inputs).)*$", f)]
+    nc_paths = natsorted([os.path.join(dp, f) for (dp, dn, fn) in os.walk(DIRPATH) \
+                    for f in fn if re.search("^((?!DS_Store|inputs).)*$", f)])
 
     # Retrieve dataframes of tree and grass productivity from ncdf files
     hws_dfs = Parallel(n_jobs=num_cores)(delayed(get_dataframe)(npf) \

@@ -4,6 +4,7 @@ import os
 import cPickle as pickle
 from scipy import integrate
 from collections import OrderedDict
+from natsort import natsorted
 
 def main():
 
@@ -18,7 +19,7 @@ def main():
                        for (dlab, df) in flux_dict.iteritems()}
 
     # dump this as another pickle for plotting later on
-    pickle.dump(OrderedDict(sorted(daily_fluxes_df.iteritems())), \
+    pickle.dump(OrderedDict(natsorted(daily_fluxes_df.iteritems())), \
                 open(PKLPATH + "daily/daily_fluxes.pkl", 'wb'))
 
     return 1

@@ -32,7 +32,7 @@ def main():
                     for i in range(len(file_path_list))]
 
     # Get the number of available cores for multi-proc
-    num_cores = cpu_count()
+#    num_cores = cpu_count()
 
     # Upload files and transfer to a netCDF format
     # [need to do pickle instanced methods]

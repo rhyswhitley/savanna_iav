@@ -2,20 +2,17 @@
 
 import os
 import re
+import natsort
 import netCDF4 as nc
 import numpy as np
 import pandas as pd
+import cPickle as pickle
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.cm import get_cmap
 from matplotlib import style
 from scipy import stats
-from scipy import integrate
-# mpi
-from joblib import delayed, Parallel
-from multiprocessing import cpu_count
-
-
+from collections import OrderedDict
 
 def fit_trend(x, y):
     z = np.polyfit(x, y, 1)
@@ -32,7 +29,7 @@ def add_trend(pObj, xseries, yseries, col, header):
             .format(header, trend['slope'], trend['p'])
         # make the significant slopes stand out more
         if trend['p'] < 0.05:
-            sig_lw = 3
+            sig_lw = 4
             sig_alpha = 1
         else:
             sig_lw = 1.75
@@ -158,7 +155,7 @@ def plot_gpp_trends(canopy_data_list):
     plt.show()
     return 1
 
-def plot_gpp_trends_split(canopy_data_list):
+def plot_gpp_trends_split(canopy_data_list, sname, lai_var=True):
 
     plt.rcParams['lines.linewidth'] = 1.2
     plt.rcParams.update({'mathtext.default': 'regular'})
@@ -176,31 +173,31 @@ def plot_gpp_trends_split(canopy_data_list):
     ax3 = plt.subplot(plot_grid[2])
 
     # for each experiment
-    for (i, canopy) in enumerate(canopy_data_list):
+    for (i, (clab, canopy)) in enumerate(canopy_data_list.iteritems()):
 
-        # resample to day timestep
-        canp_upts = agg_tseries_up(canopy.ix[:, ["trees_Ag", "grass_Ag"]], 1e-6*12)
+        if lai_var is True:
+            take_these = [0] + range(7, 13)
+        else:
+            take_these = range(1, 7) + [13]
 
-        trees_Cf = np.array(canp_upts["year"]["trees_Ag"])
-        grass_Cf = np.array(canp_upts["year"]["grass_Ag"])
-        total_Cf = trees_Cf + grass_Cf
-        # time
-        y_tseries = range(2001, 2015)
+        if i in take_these:
+            # get values
+            trees_Cf = canopy["Atree"].values
+            grass_Cf = canopy["Agrass"].values
+            total_Cf = trees_Cf + grass_Cf
+            # time
+            y_tseries = range(2001, 2015)
 
-        # carbon
-        ax1.plot(y_tseries, total_Cf, 'o--', alpha=0.4, c=col2_map[i])
-        ax2.plot(y_tseries, trees_Cf, 'o--', alpha=0.4, c=col2_map[i])
-        ax3.plot(y_tseries, grass_Cf, 'o--', alpha=0.4, c=col2_map[i])
-        # y ~ x
-        add_trend(ax1, y_tseries, total_Cf, col2_map[i], "Exp_{0}".format(i+1))
-        add_trend(ax2, y_tseries, trees_Cf, col2_map[i], "Exp_{0}".format(i+1))
-        add_trend(ax3, y_tseries, grass_Cf, col2_map[i], "Exp_{0}".format(i+1))
+            # carbon
+            ax1.plot(y_tseries, total_Cf, 'o--', alpha=0.4, c=col2_map[i])
+            ax2.plot(y_tseries, trees_Cf, 'o--', alpha=0.4, c=col2_map[i])
+            ax3.plot(y_tseries, grass_Cf, 'o--', alpha=0.4, c=col2_map[i])
+            # y ~ x
+            add_trend(ax1, y_tseries, total_Cf, col2_map[i], clab)
+            add_trend(ax2, y_tseries, trees_Cf, col2_map[i], clab)
+            add_trend(ax3, y_tseries, grass_Cf, col2_map[i], clab)
 
     # limits
-#    ax1.set_ylim([1600, 2100])
-#    ax2.set_ylim([1100, 1500])
-#    ax3.set_ylim([300, 600])
-
     ax1.set_xlim([2000, 2015])
     ax2.set_xlim([2000, 2015])
     ax3.set_xlim([2000, 2015])
@@ -215,7 +212,12 @@ def plot_gpp_trends_split(canopy_data_list):
     ax3.xaxis.set_ticklabels(newax, rotation=45, ha="right", fontsize=13)
 
     # labels
-    ax1.set_title("Howard Springs IAV Experiments (2001 to 2015)")
+    if lai_var is True:
+        title_lab = "Howard Springs [2001 - 2015] :: vary-IAV LAI Experiments"
+    else:
+        title_lab = "Howard Springs [2001 - 2015] :: non-IAV LAI Experiments"
+
+    ax1.set_title(title_lab)
     ax1.set_ylabel(r"Total GPP (gC m$^{-2}$ s$^{-1}$)")
     ax2.set_ylabel(r"Tree GPP (gC m$^{-2}$ s$^{-1}$)")
     ax3.set_ylabel(r"Grass GPP (gC m$^{-2}$ s$^{-1}$)")
@@ -233,34 +235,32 @@ def plot_gpp_trends_split(canopy_data_list):
     ax3.grid(c='gray')
 
     plt.subplots_adjust(left=0.1, right=0.76, bottom=0.1, top=0.95)
-    #plt.savefig(SAVEPATH)
-    plt.show()
+    plt.savefig(SAVEPATH + sname)
+    #plt.show()
     return 1
 
 
 def main():
 
-    # Get the number of available cores for multi-proc
-    num_cores = cpu_count()
+    # Get the leaf daily dataframe dictionary
+    leaf_dict = pickle.load(open(PKLPATH + "daily/daily_leaf.pkl", 'rb'))
 
-    # Get the filepaths for each experiment's output ncdf file
-    nc_paths = [os.path.join(dp, f) for (dp, dn, fn) in os.walk(DIRPATH) \
-                    for f in fn if re.search("^((?!DS_Store|inputs).)*$", f)]
-
-    # Retrieve dataframes of tree and grass productivity from ncdf files
-    hws_dfs = Parallel(n_jobs=num_cores)(delayed(get_dataframe)(npf) \
-                    for npf in nc_paths)
+    # for some reason the natural sorting isn't retained in the load
+    leaf_year = OrderedDict(natsort.natsorted({dlab: ldf[["Atree", "Agrass"]] \
+                    .resample("A", how=lambda x: sum(x)*12) \
+                    for (dlab, ldf) in leaf_dict.iteritems()}.iteritems()))
 
     # Create the plot
-    plot_gpp_trends_split(hws_dfs)
+    plot_gpp_trends_split(leaf_year, "HWS_GPP_trend_nonLAI.pdf", lai_var=False)
+    plot_gpp_trends_split(leaf_year, "HWS_GPP_trend_varLAI.pdf", lai_var=True)
 
     return None
 
 if __name__ == "__main__":
 
     # set paths
-    DIRPATH = os.path.expanduser("~/Savanna/Data/HowardSprings_IAV/ncdf/")
-    SAVEPATH = os.path.expanduser("~/Savanna/Analysis/figures/IAV/HWS_treegrass_gpptrends.pdf")
+    PKLPATH = os.path.expanduser("~/Savanna/Data/HowardSprings_IAV/pickled/")
+    SAVEPATH = os.path.expanduser("~/Savanna/Analysis/figures/IAV/")
 
     # run main
     main()
