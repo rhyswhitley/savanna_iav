@@ -1,12 +1,12 @@
 #!/usr/bin/env python2
 
-import re
 import spa_etl_class as spa
 import os
+#import dill
 import time
-from joblib import delayed, Parallel
+#from joblib import delayed, Parallel
 from multiprocessing import cpu_count
-
+import pathos.multiprocessing as mp
 
 __author__ = 'Rhys Whitley'
 __email__ = 'rhys.whitley@gmail.com'
@@ -31,16 +31,21 @@ def main():
     save_paths = ["{0}/spa_hws_exp{1}.nc".format(SAVEPATH, i + 1) \
                     for i in range(len(file_path_list))]
 
-    # Get the number of available cores for multi-proc
-#    num_cores = cpu_count()
-
     # Upload files and transfer to a netCDF format
-    # [need to do pickle instanced methods]
-#    Parallel(n_jobs=num_cores)(delayed(**spa_etl.process_outputs)(flist, sp) \
+#    Parallel(n_jobs=cpu_count())\
+#        (delayed(spa_etl.process_outputs)(flist, sp) \
 #        for (flist, sp) in zip(file_path_list, save_paths))
+
+    # [using pathos]
+    # setup processing pool
+    pool = mp.Pool(cpu_count())
+    pool.map(spa_etl.process_outputs, zip(file_path_list, save_paths))
+    pool.close()
+    pool.join()
+
     # [boring sequential]
-    [spa_etl.process_outputs(flist, sp) \
-        for (flist, sp) in zip(file_path_list, save_paths)]
+#    [spa_etl.process_outputs(flist, sp) \
+#        for (flist, sp) in zip(file_path_list, save_paths)]
 
     print("ETL Finished")
 

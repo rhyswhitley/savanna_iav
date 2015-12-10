@@ -41,6 +41,11 @@ class spa_netCDF4(object):
         nc_obj.createVariable('Ggrass', 'f8', ('time', 'x', 'y'))
         nc_obj.createVariable('LAItree', 'f8', ('time', 'x', 'y'))
         nc_obj.createVariable('LAIgrass', 'f8', ('time', 'x', 'y'))
+        # >> Soils
+        nc_obj.createVariable('SWC20', 'f8', ('time', 'x', 'y'))
+        nc_obj.createVariable('SWC80', 'f8', ('time', 'x', 'y'))
+        nc_obj.createVariable('IntSWC', 'f8', ('time', 'x', 'y'))
+        nc_obj.createVariable('IntSWP', 'f8', ('time', 'x', 'y'))
         return None
 
     def assign_units(self, nc_obj):
@@ -71,6 +76,11 @@ class spa_netCDF4(object):
         nc_obj.variables['Ggrass'].units = "mmol/m^2/s"
         nc_obj.variables['LAItree'].units = "m^2/m^2"
         nc_obj.variables['LAIgrass'].units = "m^2/m^2"
+        # Soil Profile
+        nc_obj.variables['SWC20'].units = "m^3/m^-3"
+        nc_obj.variables['SWC80'].units = "m^3/m^-3"
+        nc_obj.variables['IntSWC'].units = "m^3/m^-3"
+        nc_obj.variables['IntSWP'].units = "MPa"
         return None
 
     def assign_longNames(self, nc_obj):
@@ -93,4 +103,9 @@ class spa_netCDF4(object):
         nc_obj.variables['Ggrass'].longname = "C4 stomatal conductance"
         nc_obj.variables['LAItree'].longname = "C3 leaf area index"
         nc_obj.variables['LAIgrass'].longname = "C4 leaf area index"
+        # Soil Profile
+        nc_obj.variables['SWC20'].longname = "Soil water content at 20 cm depth"
+        nc_obj.variables['SWC80'].longname = "Soil water content at 80 cm depth"
+        nc_obj.variables['IntSWC'].longname = "Integrated average soil water content"
+        nc_obj.variables['IntSWP'].longname = "Integrated average soil water potential"
         return None

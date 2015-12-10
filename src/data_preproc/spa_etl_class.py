@@ -5,6 +5,8 @@ import sys, os, re
 import time
 import netCDF4 as nc
 import spa_ncdf_class as spa_nc
+from scipy import integrate
+from scipy.interpolate import UnivariateSpline
 
 __author__ = 'Rhys Whitley'
 __email__ = 'rhys.whitley@gmail.com'
@@ -121,9 +123,9 @@ class SPAoutput_ETL(object):
         # import the soil profile input file
         soil_prof = pd.read_csv(file_name)
         # take the first row which has the soil layer thicknesses
-        soil_layer = soil_prof.ix[0, 1:-1]
+        soil_layer = soil_prof.ix[0, 1:-1].values.astype('float')
         # calculate the cumulative thickness, equivalent to soil depth at each layer
-        cumul_depth = [soil_layer[0] + sum(soil_layer[:i]) for i in range(len(soil_layer))]
+        cumul_depth = np.cumsum(soil_layer)
         # return to user
         return cumul_depth
     def load_gasex_raw(self, filepaths):
@@ -198,11 +200,20 @@ class SPAoutput_ETL(object):
             # Pass back to user
             return natsort.natsorted(file_list)
 
-    def process_outputs(self, fpath_list, nc_fout):
+    def integrated_mean_soil(self, soil_matrix, soil_depths):
+
+        soil_int = lambda y, x: integrate.trapz(y=y, x=x)/max(x)
+        int_soil_prof = soil_matrix.apply(soil_int, axis=1, args=(soil_depths,))
+
+        return int_soil_prof
+
+    #def process_outputs(self, fpath_list, nc_fout):
+    def process_outputs(self, fpack):
         """
         Given a list of files from a simulation folder load them using pandas
         and process them into netcdf4 files
         """
+        fpath_list, nc_fout = fpack
         # Static soil profile path
         profpaths = [fp for fp in fpath_list if re.search(r'_soils', fp)][0]
         # Paths for soil profile water fluxes
@@ -218,9 +229,11 @@ class SPAoutput_ETL(object):
         # Land-surface and meteorology fluxes
         landsurf = self.load_hourly_raw(landpaths)
         # Below-ground water fluxes
-        #watrprof = self.load_hourly_raw(soilpaths)
+        watrprof = self.load_hourly_raw(soilpaths)
         # soil layer thicknesses
-        #soil_thick = self.import_soil_profile(profpaths)
+        soil_depths = self.import_soil_profile(profpaths)
+        # Determine the integrated average soil state properties
+        intProf_swc = self.integrated_mean_soil(watrprof['soilwater'].ix[:, 1:-1], soil_depths)
 
         print("> writing netCDF file: {0}".format(nc_fout))
 
@@ -238,25 +251,30 @@ class SPAoutput_ETL(object):
                     .astype('timedelta64[s]')
 
         # Get time from netcdf driver file
-        nc_file.variables['time'][:] = np.array(tseries)
+        nc_file.variables['time'][:] = tseries.values
         # [Land-surface fluxes]
-        nc_file.variables['GPP'][:] = np.array(landsurf['hourly']['gpp'])
-        nc_file.variables['Qle'][:] = np.array(landsurf['hourly']['lemod'])
-        nc_file.variables['TVeg'][:] = np.array(landsurf['hourly']['transle'])
-        nc_file.variables['Esoil'][:] = np.array(landsurf['hourly']['soille'])
-        nc_file.variables['Ecanop'][:] = np.array(landsurf['hourly']['wetle'])
-        nc_file.variables['AutoResp'][:] = np.array(landsurf['hourly']['resp'])
+        nc_file.variables['GPP'][:] = landsurf['hourly']['gpp'].values
+        nc_file.variables['Qle'][:] = landsurf['hourly']['lemod'].values
+        nc_file.variables['TVeg'][:] = landsurf['hourly']['transle'].values
+        nc_file.variables['Esoil'][:] = landsurf['hourly']['soille'].values
+        nc_file.variables['Ecanop'][:] = landsurf['hourly']['wetle'].values
+        nc_file.variables['AutoResp'][:] = landsurf['hourly']['resp'].values
         # [Vegetation fluxes]
-        nc_file.variables['Atree'][:] = np.array(canopy10['trees_Ag'])
-        nc_file.variables['Agrass'][:] = np.array(canopy10['grass_Ag'])
-        nc_file.variables['Rtree'][:] = np.array(canopy10['trees_Rd'])
-        nc_file.variables['Rgrass'][:] = np.array(canopy10['grass_Rd'])
-        nc_file.variables['Etree'][:] = np.array(canopy10['trees_Et'])
-        nc_file.variables['Egrass'][:] = np.array(canopy10['grass_Et'])
-        nc_file.variables['Gtree'][:] = np.array(canopy10['trees_gs'])
-        nc_file.variables['Ggrass'][:] = np.array(canopy10['grass_gs'])
-        nc_file.variables['LAItree'][:] = np.array(canopy10['trees_LAI'])
-        nc_file.variables['LAIgrass'][:] = np.array(canopy10['grass_LAI'])
+        nc_file.variables['Atree'][:] = canopy10['trees_Ag'].values
+        nc_file.variables['Agrass'][:] = canopy10['grass_Ag'].values
+        nc_file.variables['Rtree'][:] = canopy10['trees_Rd'].values
+        nc_file.variables['Rgrass'][:] = canopy10['grass_Rd'].values
+        nc_file.variables['Etree'][:] = canopy10['trees_Et'].values
+        nc_file.variables['Egrass'][:] = canopy10['grass_Et'].values
+        nc_file.variables['Gtree'][:] = canopy10['trees_gs'].values
+        nc_file.variables['Ggrass'][:] = canopy10['grass_gs'].values
+        nc_file.variables['LAItree'][:] = canopy10['trees_LAI'].values
+        nc_file.variables['LAIgrass'][:] = canopy10['grass_LAI'].values
+        # [Soil Profile]
+        nc_file.variables['SWC20'][:] = watrprof['soilwater']['w1'].values
+        nc_file.variables['SWC80'][:] = watrprof['soilwater']['w4'].values
+        nc_file.variables['IntSWC'][:] = intProf_swc.values
+        nc_file.variables['IntSWP'][:] = watrprof['soilwater']['w_swp'].values
 
         # Close file
         nc_file.close()

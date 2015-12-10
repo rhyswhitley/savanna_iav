@@ -6,10 +6,6 @@ import netCDF4 as nc
 import numpy as np
 import pandas as pd
 import pickle
-from natsort import natsorted
-# mpi
-from joblib import delayed, Parallel
-from multiprocessing import cpu_count, Pool
 
 def get_value(nc_obj, label):
     return nc_obj.variables[label][:].flatten()
@@ -31,9 +27,9 @@ def get_dataframe(nc_path):
     sec_orig = re.search(r'\d+.*', str(time_sec.units)).group(0)
     # the header values for each measurements; excludes time and space components
     nc_allkeys = ncdf_con.variables.keys()
-    # only want tree and grass outputs
+    # only want time-varying inputs
     data_values = [key for key in nc_allkeys \
-                   if re.search('(GPP)|(AutoResp)|(Qle)|(Esoil)|(Tveg)|(Ecanop)}', key)]
+                   if re.search("^((?!x|y|time|latitude|longitude).)*$", key)]
 
     # create a new dataframe from the netCDF file
     nc_dataframe = pd.DataFrame({label: get_value(ncdf_con, label) \
@@ -44,27 +40,17 @@ def get_dataframe(nc_path):
 
 def main():
 
-    # Get the number of available cores for multi-proc
-    num_cores = cpu_count()
-    proc_pool = Pool(num_cores)
-
-    # Get the filepaths for each experiment's output ncdf file
-    nc_paths = natsorted([os.path.join(dp, f) for (dp, dn, fn) in os.walk(DIRPATH) \
-                    for f in fn if re.search("^((?!DS_Store|inputs).)*$", f)])
-
     # Retrieve dataframes of tree and grass productivity from ncdf files
-    hws_dfs = Parallel(n_jobs=num_cores)(delayed(get_dataframe)(npf) \
-                    for npf in nc_paths)
+    input_df = get_dataframe(DIRPATH)
 
     # pickle the leaf scale outputs (see if it's quicker to load)
-    hws_dict = {"Exp_{0}".format(i+1): df for (i, df) in enumerate(hws_dfs)}
-    pickle.dump(hws_dict, open(PKLPATH+"hourly/fluxes_dict.pkl", "wb"))
+    pickle.dump(input_df, open(PKLPATH+"hourly/tower_fluxes_valid.pkl", "wb"))
 
     return None
 
 if __name__ == '__main__':
 
-    DIRPATH = os.path.expanduser("~/Savanna/Data/HowardSprings_IAV/ncdf/")
+    DIRPATH = os.path.expanduser("~/Savanna/Data/HowardSprings_IAV/ncdf/hws_tower_fluxes.nc")
     PKLPATH = os.path.expanduser("~/Savanna/Data/HowardSprings_IAV/pickled/")
 
     main()
