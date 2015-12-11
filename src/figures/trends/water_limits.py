@@ -14,33 +14,86 @@ def main():
     timesteps
     """
 
-    month_lab = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     pload = lambda x: pickle.load(open(x, 'rb'))
 
     model_dict = pload(MODFILE)
     obs_data = pload(OBSFILE)
 
-    temp = model_dict['Exp_1']
-    #temp = obs_data
-    temp['GPP2'] = -temp['GPP']*12
-    temp['WUE'] = -temp['GPP']/(temp['Qle']/18/2.45)
-    temp['Year'] = temp.index.year
-    temp['Month'] = temp.index.month
+    model_out = add_to_data(model_dict['Exp_1'])
+    tower_obs = add_to_data(obs_data)
 
-    sns.set_style("whitegrid")
-    #plt.rcParams.update({'mathtext.default': 'regular'})
+    print model_out.head(10)
+
+    create_obswater_plots(tower_obs, 'Obs')
+    create_modwater_plots(model_out, 'Mod')
+
+def add_to_data(temp_df):
+    temp_df['GPP2'] = -temp_df['GPP']*12
+    temp_df['WUE'] = -temp_df['GPP']/(temp_df['Qle']/18/2.45)
+    temp_df['Year'] = temp_df.index.year
+    temp_df['Month'] = temp_df.index.month
+    return temp_df
+
+def create_modwater_plots(temp_df, label="Mod"):
+    x_label_custom = '$z^{-1}\int^{z}_{0}\\theta_{s} dz$ (m$^{3}$ m$^{-3}$)'
+    p1 = plot_swcrel(temp_df, "IntSWC", "WUE")
+    p1.set_axis_labels(x_label_custom,  \
+                             'WUE (mol CO$_{2}$ mol$^{-1}$ H$_{2}$O)')
+    plt.savefig(FIGPATH + "{0}_WUExSWC.pdf".format(label))
+
+    p2 = plot_swcrel(temp_df, "IntSWC", "GPP2")
+    p2.set_axis_labels(x_label_custom,  \
+                             'GPP (gC m$^{-2}$ d$^{-1}$')
+    plt.savefig(FIGPATH + "{0}_GPPxSWC.pdf".format(label))
+
+    p3 = plot_swcrel(temp_df, "IntSWC", "Qle")
+    p3.set_axis_labels(x_label_custom,  \
+                             'LE (MJ m$^{-2}$ d$^{-1}$')
+    plt.savefig(FIGPATH + "{0}_QLExSWC.pdf".format(label))
+
+    return None
+
+def create_obswater_plots(temp_df, label="Mod"):
+    x_label_custom = '$\\theta_{s,10cm}$ (m$^{3}$ m$^{-3}$)'
+    p1 = plot_swcrel(temp_df, "SoilMoist10", "WUE")
+    p1.set_axis_labels(x_label_custom,  \
+                             'WUE (mol CO$_{2}$ mol$^{-1}$ H$_{2}$O)')
+    plt.savefig(FIGPATH + "{0}_WUExSWC.pdf".format(label))
+
+    p2 = plot_swcrel(temp_df, "SoilMoist10", "GPP2")
+    p2.set_axis_labels(x_label_custom,  \
+                             'GPP (gC m$^{-2}$ d$^{-1}$')
+    plt.savefig(FIGPATH + "{0}_GPPxSWC.pdf".format(label))
+
+    p3 = plot_swcrel(temp_df, "SoilMoist10", "Qle")
+    p3.set_axis_labels(x_label_custom,  \
+                             'LE (MJ m$^{-2}$ d$^{-1}$')
+    plt.savefig(FIGPATH + "{0}_QLExSWC.pdf".format(label))
+
+    return None
+
+def plot_swcrel(data, xlabel, ylabel):
+
+    month_lab = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', \
+                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    sns.set_style("ticks")
+    plt.rcParams.update({'mathtext.default': 'regular'})
     kws = dict(s=50, linewidth=.5, edgecolor="w", alpha=0.7)
 
-    wue_plot = sns.FacetGrid(temp, col="Year", hue="Month", col_wrap=4, size=3)
-    wue_plot.map(plt.scatter, "IntSWC", "WUE", **kws)
-    wue_plot.set_axis_labels('$z^{-1}\int^{z}_{0}\\theta_{s} dz$ (m$^{3}$ m$^{-3}$)',  \
-                             'WUE (mol CO$_{2}$ mol$^{-1}$ H$_{2}$O)')
+    wue_plot = sns.FacetGrid(data, col="Year", hue="Month", col_wrap=4, size=3)
+    wue_plot.map(plt.scatter, xlabel, ylabel, **kws)
 
-    wue_plot.set(xlim=(0.18, 0.34), ylim=(0, 6), xticks=np.arange(0.2, 0.35, 0.02))
+    ymax = np.ceil(data[ylabel].mean() + 3*data[ylabel].std())
+    xmax = np.max(data[xlabel])
+    xmin = np.min(data[xlabel])
 
-#    for wue0 in wue_plot.get_xticklabels():
-#        wue0.set_rotation(45)
-    print len(wue_plot)
+    x_ticks = np.arange(0, 0.35, 0.02)
+    for wax in wue_plot.axes.ravel():
+        wax.xaxis.set_ticks(x_ticks)
+        wax.xaxis.set_ticklabels(['%1.2f' %x for x in x_ticks], \
+                                 rotation=45, ha="right", fontsize=11)
+
+    wue_plot.set(xlim=(xmin, xmax), ylim=(0, ymax))
 
     leg = plt.legend(loc='right', labels=month_lab, ncol=4, bbox_to_anchor=(2.8, 0.5), \
                      borderpad=2)
@@ -48,19 +101,7 @@ def main():
 
     wue_plot.fig.subplots_adjust(wspace=.08, hspace=0.15, bottom=0.08)
 
-    plt.savefig(WUEPLOT)
-    return 1
-
-    sns.set_style("darkgrid")
-    wue_plot = sns.FacetGrid(temp, col="Year", hue="Month", col_wrap=4, size=3)
-    wue_plot.map(plt.scatter, "Qle", "GPP2", **kws)
-    wue_plot.set_axis_labels('LE (MJ m$^{-2}$ d$^{-1}$)', 'GPP (gC m$^{-2}$ d$^{-1}$)')
-    wue_plot.set(xlim=(0, 20), ylim=(0, 10))
-    wue_plot.fig.subplots_adjust(wspace=.08)
-
-    plt.show()
-
-    return 1
+    return wue_plot
 
 
 if __name__ == "__main__":
@@ -72,6 +113,21 @@ if __name__ == "__main__":
 
     # Figure names
     FIGPATH = os.path.expanduser("~/Savanna/Analysis/figures/IAV/")
-    WUEPLOT = FIGPATH + "wue_swc_rel.pdf"
 
     main()
+
+
+
+#    plt.savefig(WUEPLOT)
+#
+#    sns.set_style("darkgrid")
+#    wue_plot = sns.FacetGrid(temp, col="Year", hue="Month", col_wrap=4, size=3)
+#    wue_plot.map(plt.scatter, "Qle", "GPP2", **kws)
+#    wue_plot.set_axis_labels('LE (MJ m$^{-2}$ d$^{-1}$)', 'GPP (gC m$^{-2}$ d$^{-1}$)')
+#    wue_plot.set(xlim=(0, 20), ylim=(0, 10))
+#    wue_plot.fig.subplots_adjust(wspace=.08)
+#
+#    plt.show()
+#
+#    return 1
+
