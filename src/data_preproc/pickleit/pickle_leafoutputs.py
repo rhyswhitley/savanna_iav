@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pickle
 from natsort import natsorted
+from collections import OrderedDict
 # mpi
 from joblib import delayed, Parallel
 from multiprocessing import cpu_count
@@ -49,7 +50,7 @@ def main():
 
     # Get the filepaths for each experiment's output ncdf file
     nc_paths = natsorted([os.path.join(dp, f) for (dp, dn, fn) in os.walk(DIRPATH) \
-                    for f in fn if re.search("^((?!DS_Store|inputs).)*$", f)])
+                    for f in fn if re.search("^((?!DS_Store|inputs|tower).)*$", f)])
 
     # Retrieve dataframes of tree and grass productivity from ncdf files
     hws_dfs = Parallel(n_jobs=num_cores)(delayed(get_dataframe)(npf) \

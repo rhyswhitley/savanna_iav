@@ -1,12 +1,12 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python2.7
 
-import spa_etl_class as spa
 import os
-#import dill
 import time
-#from joblib import delayed, Parallel
-from multiprocessing import cpu_count
+
 import pathos.multiprocessing as mp
+from multiprocessing import cpu_count
+
+from etl import SPAoutput_ETL
 
 __author__ = 'Rhys Whitley'
 __email__ = 'rhys.whitley@gmail.com'
@@ -20,7 +20,7 @@ def main():
     print("Starting ETL processes on SPA v1 outputs")
 
     # Create a SPA ETL object
-    spa_etl = spa.SPAoutput_ETL()
+    spa_etl = SPAoutput_ETL()
 
     print("The script will now convert raw CSV outputs into netCDF4 files\n")
 
@@ -31,11 +31,6 @@ def main():
     save_paths = ["{0}/spa_hws_exp{1}.nc".format(SAVEPATH, i + 1) \
                     for i in range(len(file_path_list))]
 
-    # Upload files and transfer to a netCDF format
-#    Parallel(n_jobs=cpu_count())\
-#        (delayed(spa_etl.process_outputs)(flist, sp) \
-#        for (flist, sp) in zip(file_path_list, save_paths))
-
     # [using pathos]
     # setup processing pool
     pool = mp.Pool(cpu_count())
@@ -44,7 +39,7 @@ def main():
     pool.join()
 
     # [boring sequential]
-#    [spa_etl.process_outputs(flist, sp) \
+#    [spa_etl.process_outputs([flist, sp]) \
 #        for (flist, sp) in zip(file_path_list, save_paths)]
 
     print("ETL Finished")
@@ -58,5 +53,4 @@ if __name__ == "__main__":
 
     # Run main
     main()
-
 

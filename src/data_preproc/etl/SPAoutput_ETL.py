@@ -4,9 +4,10 @@ import pandas as pd
 import sys, os, re
 import time
 import netCDF4 as nc
-import spa_ncdf_class as spa_nc
+
 from scipy import integrate
-from scipy.interpolate import UnivariateSpline
+
+from etl.spa_ncdf import spa_netCDF4
 
 __author__ = 'Rhys Whitley'
 __email__ = 'rhys.whitley@gmail.com'
@@ -87,7 +88,7 @@ class SPAoutput_ETL(object):
         * adds indexes on time and canopy layer
         """
         # read in file
-        data = pd.read_csv(file_name, sep=r',\s+', engine='python')
+        data = pd.read_csv(file_name, sep=r',\s+', engine='python', na_values=["Infinity"])
         # remove header whitespace
         data.columns = [dc.replace(' ', '') for dc in data.columns]
         # add layer label (need to reduce on this)
@@ -100,7 +101,7 @@ class SPAoutput_ETL(object):
         # set new indices
         data_dated = data.set_index(['DATE', 'clayer'])
         # return to user
-        return data_dated
+        return data_dated.bfill()
 
     def import_spa_output(self, file_name):
         """
@@ -108,7 +109,7 @@ class SPAoutput_ETL(object):
         column
         """
         # read in file
-        data = pd.read_csv(file_name, sep=r',', engine='python')
+        data = pd.read_csv(file_name, sep=r',', engine='python', na_values=["Infinity"])
         # remove header whitespace
         data.columns = [dc.replace(' ', '') for dc in data.columns]
         # re-do the datetime column as it is out by 30 minutes
@@ -117,7 +118,7 @@ class SPAoutput_ETL(object):
         # set dataframe index on this column
         data_dated = data.set_index(['DATE'])
         # return to user
-        return data_dated
+        return data_dated.bfill()
 
     def import_soil_profile(self, file_name):
         # import the soil profile input file
@@ -207,7 +208,6 @@ class SPAoutput_ETL(object):
 
         return int_soil_prof
 
-    #def process_outputs(self, fpath_list, nc_fout):
     def process_outputs(self, fpack):
         """
         Given a list of files from a simulation folder load them using pandas
@@ -215,14 +215,17 @@ class SPAoutput_ETL(object):
         """
         fpath_list, nc_fout = fpack
         # Static soil profile path
-        profpaths = [fp for fp in fpath_list if re.search(r'_soils', fp)][0]
+        profpaths = [fp for fp in fpath_list if \
+                     re.search(r'_soils', os.path.basename(fp))]
         # Paths for soil profile water fluxes
-        soilpaths = [fp for fp in fpath_list if re.search(r'soil(?!s)|upfrac', fp)]
+        soilpaths = [fp for fp in fpath_list \
+                     if re.search(r'soil(?!s)|upfrac', os.path.basename(fp))]
         # Canopy layer outputs
-        canopaths = [fp for fp in fpath_list if re.match(r'^.*[0-9]+.csv$', fp)][2:]
+        canopaths = [fp for fp in fpath_list \
+                     if re.search(r'l.*[0-9]+.csv$', os.path.basename(fp))]
         # Paths for land-surface fluxes
         landpaths = [fp for fp in fpath_list \
-                     if re.search(r'^((?!l\d+|soil|upfrac|temp|phen).)*$', fp)]
+                     if re.search(r'^((?!l\d+|soil|upfrac|temp|phen).)*$', os.path.basename(fp))]
 
         # Canopy layer outputs
         canopy10 = self.load_gasex_raw(canopaths)
@@ -231,17 +234,18 @@ class SPAoutput_ETL(object):
         # Below-ground water fluxes
         watrprof = self.load_hourly_raw(soilpaths)
         # soil layer thicknesses
-        soil_depths = self.import_soil_profile(profpaths)
+        soil_depths = self.import_soil_profile(profpaths[0])
         # Determine the integrated average soil state properties
         intProf_swc = self.integrated_mean_soil(watrprof['soilwater'].ix[:, 1:-1], soil_depths)
 
         print("> writing netCDF file: {0}".format(nc_fout))
+        #import ipdb; ipdb.set_trace()
 
         # Open a NCDF4 file for SPA simulation outputs
         nc_file = nc.Dataset(nc_fout, 'w', format='NETCDF4')
 
         # Assign attributes
-        ncdf_attr = spa_nc.spa_netCDF4()
+        ncdf_attr = spa_netCDF4()
         ncdf_attr.assign_variables(nc_file)
         ncdf_attr.assign_units(nc_file)
         ncdf_attr.assign_longNames(nc_file)
@@ -252,6 +256,7 @@ class SPAoutput_ETL(object):
 
         # Get time from netcdf driver file
         nc_file.variables['time'][:] = tseries.values
+        nc_file.variables['soildepth'][:] = soil_depths
         # [Land-surface fluxes]
         nc_file.variables['GPP'][:] = landsurf['hourly']['gpp'].values
         nc_file.variables['Qle'][:] = landsurf['hourly']['lemod'].values
@@ -275,6 +280,7 @@ class SPAoutput_ETL(object):
         nc_file.variables['SWC80'][:] = watrprof['soilwater']['w4'].values
         nc_file.variables['IntSWC'][:] = intProf_swc.values
         nc_file.variables['IntSWP'][:] = watrprof['soilwater']['w_swp'].values
+        nc_file.variables['SoilMoist'][:] = watrprof['soilwater'].ix[:, 1:-1].values
 
         # Close file
         nc_file.close()

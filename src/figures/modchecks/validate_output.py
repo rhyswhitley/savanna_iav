@@ -119,6 +119,8 @@ def main():
     # setup
     sns.set_style("dark")
     plt.rcParams.update({'mathtext.default': 'regular'})
+    mycols = sns.color_palette()
+    print(mycols)
     fig = plt.figure(figsize=(13, 9))
 
     grids = gridspec.GridSpec(2, 2, wspace=0.3, hspace=0.25, width_ratios=[2, 1])

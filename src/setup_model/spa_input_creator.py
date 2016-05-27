@@ -29,8 +29,9 @@ def create_phen_file(lai_ts):
     return site_phen_out
 
 def divide_leaves(lai_part):
-    trees_frac = [lai_part['tree']*0.7/lai_part['total']/5. for i in range(5)]
-    grass_frac = [lai_part['grass']*1.3/lai_part['total']/5. for i in range(5)]
+    # was 0.7 (trees) and 1.3 (grass) obviously wrong
+    trees_frac = [lai_part['tree']/lai_part['total']/5. for i in range(5)]
+    grass_frac = [lai_part['grass']/lai_part['total']/5. for i in range(5)]
     leaf_alloc = pd.concat([lai_part['total']] + trees_frac + grass_frac, axis=1)
     return leaf_alloc
 
@@ -41,7 +42,7 @@ def treegrass_frac(ndvi, day_rs):
     """
     # first calculate the 7-month moving minimum window across the time-series
     # changed period to 3 to kill grass in dry season
-    fp1 = moving_something(np.min, ndvi, period=3, day_rs=day_rs)
+    fp1 = moving_something(np.min, ndvi, period=7, day_rs=day_rs)
     fp2 = moving_something(lambda x: sum(x)/(9*day_rs), fp1, period=9, day_rs=day_rs)
     fr1 = ndvi - fp2
 
@@ -393,13 +394,45 @@ def main():
     climo_raw = import_one_year(clim_met_file)
     tower_raw = import_tower_data(ec_tower_file)
 
+    # messy temporary solution to LAI artifacts
+    smooth_lai = np.minimum(climo_raw['Lai_1km_new_smooth'], 2.04)
+    climo_raw['lai_sm14'] = pd.rolling_mean(smooth_lai, \
+                                   window=2*48, min_periods=1)
+
     # expand climatology out to 14 years (2001 to 2015)
     climo_14yr = expand_climatology(climo_raw)
+
+#   # Check that the tree:grass partitioning is working correctly
+#    temp = tower_raw["Lai_1km_new_smooth"]
+#    tg_temp = treegrass_frac(temp.resample('D', how='mean'), 30)
+#    plt.plot(tg_temp['total'], '-', label='total')
+#    plt.plot(tg_temp['tree'], '-', label='tree')
+#    plt.plot(tg_temp['grass'], '-', label='grass')
+#    plt.legend(loc='upper center', ncol=3)
+#    plt.show()
+#    return 1
+
+
+    #----------------------------------------------------------------------
+    # PHENOLOGY FILE CREATION
+    #----------------------------------------------------------------------
+    print("Creating phenology files\n")
+
+    # universal phenology file
+    spa_phen_1 = create_phen_file(tower_raw["Lai_1km_new_smooth"])
+
+    # experiment 2
+    spa_phen_2 = create_phen_file(climo_14yr["lai_sm14"])
+
+    # universal phenology file
+    spa_phen_1.to_csv(INPUT_PHEN_1, sep=",", index=False, line_terminator=LT)
+    spa_phen_2.to_csv(INPUT_PHEN_2, sep=",", index=False, line_terminator=LT)
 
 
     #----------------------------------------------------------------------
     # METEOROLOGY FILE CREATION
     #----------------------------------------------------------------------
+    print("Creating meteorology files\n")
 
     # experiment 1
     spa_met_1 = clean_tower_data(tower_raw)
@@ -414,27 +447,14 @@ def main():
     spa_met_x2 = [mix_climatology(spa_met_1, spa_met_2, vo) for vo in var_on]
 
     # write experiment simulations to file
-    spa_met_1.to_csv(INPUT_FILES1[0], sep=",", index=False)
-    spa_met_2.to_csv(INPUT_FILES1[1], sep=",", index=False)
+    spa_met_1.to_csv(INPUT_FILES1[0], sep=",", index=False, line_terminator=LT)
+    spa_met_2.to_csv(INPUT_FILES1[1], sep=",", index=False, line_terminator=LT)
     for (ix, (spa_df1, spa_df2)) in enumerate(zip(spa_met_x1, spa_met_x2)):
-        spa_df1.to_csv(INPUT_FILES1[2 + ix], sep=",", index=False)
-        spa_df2.to_csv(INPUT_FILES2[ix], sep=",", index=False)
+        spa_df1.to_csv(INPUT_FILES1[2 + ix], sep=",", index=False, line_terminator=LT)
+        spa_df2.to_csv(INPUT_FILES2[ix], sep=",", index=False, line_terminator=LT)
 
 
-    #----------------------------------------------------------------------
-    # PHENOLOGY FILE CREATION
-    #----------------------------------------------------------------------
-
-    # universal phenology file
-    spa_phen_1 = create_phen_file(tower_raw["Lai_1km_new_smooth"])
-    # experiment 2
-    spa_phen_2 = create_phen_file(climo_14yr["Lai_1km_new_smooth"])
-
-    # universal phenology file
-    spa_phen_1.to_csv(INPUT_PHEN_1, sep=",", index=False)
-    spa_phen_2.to_csv(INPUT_PHEN_2, sep=",", index=False)
-
-
+    return 1
     #----------------------------------------------------------------------
     # CREATE SYMBOLIC LINKS
     #----------------------------------------------------------------------
@@ -518,6 +538,9 @@ if __name__ == "__main__":
     INPUT_PHEN_2 = "{0}/common_inputs/hs_phen_exp_all.csv".format(INPUT_PATH)
 
     NCSAVEPATH = os.path.expanduser("~/Savanna/Data/HowardSprings_IAV/ncdf/")
+
+    # line terminator for CSV
+    LT = '\r\n'
 
     main()
 

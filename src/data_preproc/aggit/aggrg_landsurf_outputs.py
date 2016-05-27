@@ -14,7 +14,7 @@ def main():
     # lambda function for integrated sum
     dayint = lambda x: integrate.trapz(x, dx=1800)*1e-6
 
-    dict_samp = {lab: dayint if i is not 4 else 'mean' \
+    dict_samp = {lab: dayint if i in range(4)+[6] else 'mean' \
                  for (i, lab) in enumerate(flux_dict['Exp_1'].columns) }
 
     # resample this to daily data

@@ -9,6 +9,7 @@ class spa_netCDF4(object):
         nc_obj.createDimension('x', 1)
         nc_obj.createDimension('y', 1)
         nc_obj.createDimension('z', 1)
+        nc_obj.createDimension('soil', 20)
         nc_obj.createDimension('time', None)
         # CREATE VARIABLES
         nc_obj.createVariable('x', 'f8', ('x'))
@@ -16,6 +17,7 @@ class spa_netCDF4(object):
         nc_obj.createVariable('latitude', 'f8', ('x', 'y'))
         nc_obj.createVariable('longitude', 'f8', ('x', 'y'))
         nc_obj.createVariable('time', 'f8', ('time'))
+        nc_obj.createVariable('soildepth', 'f8', ('soil'))
         # >> Meteorology
         nc_obj.createVariable('SWdown', 'f8', ('time', 'x', 'y'))
         nc_obj.createVariable('Tair', 'f8', ('time', 'x', 'y'))
@@ -46,6 +48,8 @@ class spa_netCDF4(object):
         nc_obj.createVariable('SWC80', 'f8', ('time', 'x', 'y'))
         nc_obj.createVariable('IntSWC', 'f8', ('time', 'x', 'y'))
         nc_obj.createVariable('IntSWP', 'f8', ('time', 'x', 'y'))
+        #
+        nc_obj.createVariable('SoilMoist', 'f8', ('time', 'soil', 'y'))
         return None
 
     def assign_units(self, nc_obj):
@@ -56,6 +60,7 @@ class spa_netCDF4(object):
         nc_obj.variables['latitude'].units = "degrees_north"
         nc_obj.variables['longitude'].units = "degrees_east"
         nc_obj.variables['time'].units = "seconds since " + self.start_date
+        nc_obj.variables['soildepth'].units = "m"
         # >> [Time-varying values]
         # Land-surface
         nc_obj.variables['NPP'].units = "umol/m^2/s"
@@ -81,6 +86,7 @@ class spa_netCDF4(object):
         nc_obj.variables['SWC80'].units = "m^3/m^-3"
         nc_obj.variables['IntSWC'].units = "m^3/m^-3"
         nc_obj.variables['IntSWP'].units = "MPa"
+        nc_obj.variables['SoilMoist'].units = "m^3/m^-3"
         return None
 
     def assign_longNames(self, nc_obj):
@@ -108,4 +114,5 @@ class spa_netCDF4(object):
         nc_obj.variables['SWC80'].longname = "Soil water content at 80 cm depth"
         nc_obj.variables['IntSWC'].longname = "Integrated average soil water content"
         nc_obj.variables['IntSWP'].longname = "Integrated average soil water potential"
+        nc_obj.variables['SoilMoist'].longname = "Soil water content of the profile"
         return None

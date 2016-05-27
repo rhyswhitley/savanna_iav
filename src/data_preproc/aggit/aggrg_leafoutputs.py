@@ -15,7 +15,7 @@ def reduce_to_month(df):
 
     return agg_df
 
-def reduce_to_day(df):
+def reduce_to_day(df, dlab):
 
     # lambda function for integrated sum
     dayint = lambda x: integrate.trapz(x, dx=1800)*1e-6
@@ -25,7 +25,7 @@ def reduce_to_day(df):
                 for (i, clab) in enumerate(df.columns)}
 
     # resample based on the up-scaling dict above
-    daily_df = df.bfill().resample('D', how=up_samps)
+    daily_df = df.resample('D', how=up_samps)
 
     return daily_df
 
@@ -37,7 +37,7 @@ def main():
     # we don't need every day!
 
     # daily aggregation here
-    daily_df = {dlab: reduce_to_day(df) for (dlab, df) in leaf_dict.iteritems()}
+    daily_df = {dlab: reduce_to_day(df, dlab) for (dlab, df) in leaf_dict.iteritems()}
 
     # monthly mean hour aggregate here
     mean_month_df = {dlab: reduce_to_month(df) for (dlab, df) in leaf_dict.iteritems()}
